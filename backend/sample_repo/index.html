@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>StackSense</title>
+
+<style>
+
+/* RESET */
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    font-family: Inter, sans-serif;
+    background: #0b0f19;
+    color: #e5e7eb;
+    height: 100vh;
+    display: flex;
+
+    /* ✨ TEXT FIX */
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+}
+
+/* SIDEBAR */
+.sidebar {
+    width: 260px;
+    background: #020617;
+    border-right: 1px solid #1e293b;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: 0.3s;
+}
+
+.sidebar.hidden {
+    width: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
+/* HISTORY */
+.history-item {
+    padding: 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #0f172a;
+}
+
+.history-item:hover {
+    background: #1e293b;
+}
+
+/* MAIN */
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+/* HEADER */
+.header {
+    height: 60px;
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    border-bottom: 1px solid #1e293b;
+    background: #020617;
+    font-weight: 600;
+    font-size: 18px;
+}
+
+/* TOGGLE */
+.toggle-btn {
+    margin-right: 10px;
+    cursor: pointer;
+}
+
+/* CHAT */
+.chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* MESSAGE (✨ FIXED SPACING HERE) */
+.message {
+    max-width: 70%;
+    padding: 14px;
+    border-radius: 12px;
+
+    line-height: 1.7;       /* FIX */
+    letter-spacing: 0.3px;  /* FIX */
+    font-size: 15.5px;      /* FIX */
+
+    white-space: pre-wrap;
+}
+
+/* USER */
+.user {
+    align-self: flex-end;
+    background: #2563eb;
+}
+
+/* BOT */
+.bot {
+    align-self: flex-start;
+    background: #1e293b;
+    border: 1px solid #334155;
+}
+
+/* PARAGRAPH SPACING */
+.message p {
+    margin: 0 0 10px 0;
+}
+
+/* LIST SPACING */
+.message li {
+    margin-bottom: 6px;
+}
+
+/* INPUT */
+.input-area {
+    display: flex;
+    padding: 12px;
+    border-top: 1px solid #1e293b;
+    background: #020617;
+}
+
+input {
+    flex: 1;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid #334155;
+    background: #0f172a;
+    color: white;
+    font-size: 15px;
+}
+
+button {
+    margin-left: 10px;
+    padding: 12px 18px;
+    border-radius: 8px;
+    background: #2563eb;
+    border: none;
+    color: white;
+    cursor: pointer;
+}
+
+/* CODE BLOCK */
+pre {
+    background: #020617;
+    padding: 10px;
+    border-radius: 6px;
+    overflow-x: auto;
+
+    line-height: 1.5;
+    letter-spacing: 0.2px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div id="sidebar" class="sidebar">
+    <h3>Chats</h3>
+    <div id="history"></div>
+</div>
+
+<div class="main">
+
+    <div class="header">
+        <span class="toggle-btn" onclick="toggleSidebar()">☰</span>
+        StackSense
+    </div>
+
+    <div id="chat" class="chat"></div>
+
+    <div class="input-area">
+        <input id="input" placeholder="Ask about your code..." />
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+</div>
+
+<script>
+
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const historyDiv = document.getElementById("history");
+
+let history = [];
+
+/* SIDEBAR */
+function toggleSidebar() {
+    document.getElementById("sidebar").classList.toggle("hidden");
+}
+
+/* ADD MESSAGE */
+function addMessage(text, cls) {
+    const msg = document.createElement("div");
+    msg.className = "message " + cls;
+
+    if (text.includes("```")) {
+        msg.innerHTML = `<pre><code>${text.replace(/```/g, "")}</code></pre>`;
+    } else {
+        msg.innerText = text;
+    }
+
+    chat.appendChild(msg);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+/* TYPE EFFECT */
+function typeEffect(el, text) {
+    let i = 0;
+    function type() {
+        if (i < text.length) {
+            el.innerText += text[i++];
+            chat.scrollTop = chat.scrollHeight;
+            setTimeout(type, 8);
+        }
+    }
+    type();
+}
+
+/* HISTORY */
+function saveHistory(q) {
+    history.push(q);
+    historyDiv.innerHTML = "";
+
+    history.slice().reverse().forEach(item => {
+        const div = document.createElement("div");
+        div.className = "history-item";
+        div.innerText = item;
+        div.onclick = () => {
+            input.value = item;
+            sendMessage();
+        };
+        historyDiv.appendChild(div);
+    });
+}
+
+/* SEND */
+async function sendMessage() {
+    const text = input.value.trim();
+    if (!text) return;
+
+    addMessage(text, "user");
+    saveHistory(text);
+    input.value = "";
+
+    const botMsg = document.createElement("div");
+    botMsg.className = "message bot";
+    botMsg.innerText = "Thinking...";
+    chat.appendChild(botMsg);
+
+    try {
+        const res = await fetch("http://127.0.0.1:8000/ask", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ query: text })
+        });
+
+        const data = await res.json();
+
+        botMsg.innerText = "";
+        typeEffect(botMsg, data.answer);
+
+    } catch (err) {
+        botMsg.innerText = "⚠️ Backend error";
+    }
+}
+
+/* ENTER */
+input.addEventListener("keydown", e => {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        sendMessage();
+    }
+});
+
+</script>
+
+</body>
+</html>
