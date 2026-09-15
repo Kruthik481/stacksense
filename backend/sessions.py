@@ -33,6 +33,7 @@ def init_db() -> None:
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL DEFAULT 'New Chat',
             project_id TEXT,
+            owner_id TEXT,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
@@ -48,8 +49,18 @@ def init_db() -> None:
         CREATE INDEX IF NOT EXISTS idx_messages_session
             ON messages(session_id);
     """)
+    _ensure_sessions_owner_column(conn)
     conn.close()
     logger.info("Database initialized at %s", settings.db_path)
+
+
+def _ensure_sessions_owner_column(conn: sqlite3.Connection) -> None:
+    """Add sessions.owner_id to databases created before per-client session ownership."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(sessions)")}
+    if "owner_id" not in columns:
+        conn.execute("ALTER TABLE sessions ADD COLUMN owner_id TEXT")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_owner ON sessions(owner_id)")
+    conn.commit()
 
 
 def create_project(name: str, path: str, language: str = "") -> dict:
@@ -114,13 +125,16 @@ def delete_project(project_id: str) -> bool:
     return cursor.rowcount > 0
 
 
-def create_session(title: str = "New Chat", project_id: str | None = None) -> dict:
+def create_session(
+    title: str = "New Chat", project_id: str | None = None, owner_id: str | None = None
+) -> dict:
     session_id = str(uuid.uuid4())
     now = datetime.now(UTC).isoformat()
     conn = _get_conn()
     conn.execute(
-        "INSERT INTO sessions (id, title, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
-        (session_id, title, project_id, now, now),
+        "INSERT INTO sessions (id, title, project_id, owner_id, created_at, updated_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (session_id, title, project_id, owner_id, now, now),
     )
     conn.commit()
     conn.close()
@@ -128,14 +142,20 @@ def create_session(title: str = "New Chat", project_id: str | None = None) -> di
         "id": session_id,
         "title": title,
         "project_id": project_id,
+        "owner_id": owner_id,
         "created_at": now,
         "updated_at": now,
     }
 
 
-def list_sessions() -> list[dict]:
+def list_sessions(owner_id: str | None = None) -> list[dict]:
     conn = _get_conn()
-    rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
+    if owner_id is None:
+        rows = conn.execute("SELECT * FROM sessions ORDER BY updated_at DESC").fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM sessions WHERE owner_id = ? ORDER BY updated_at DESC", (owner_id,)
+        ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 

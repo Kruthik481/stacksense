@@ -78,7 +78,7 @@ def sample_index(fake_embedding):
 
 @pytest.fixture
 def mock_ollama(monkeypatch):
-    def fake_chat(**kwargs):
+    def fake_chat(self, **kwargs):
         if kwargs.get("stream"):
 
             def gen():
@@ -88,7 +88,7 @@ def mock_ollama(monkeypatch):
             return gen()
         return {"message": {"content": "The login function checks credentials."}}
 
-    monkeypatch.setattr("ollama.chat", fake_chat)
+    monkeypatch.setattr("ollama.Client.chat", fake_chat)
 
 
 @pytest.fixture

@@ -848,6 +848,27 @@ let currentProjectId = null;
 let sessions = [];
 let projects = [];
 let isStreaming = false;
+
+// Anonymous per-browser ID: on the public demo the server only shows a client its own sessions.
+const CLIENT_ID_KEY = 'stacksense-client-id';
+
+function newClientId() {
+    if (crypto.randomUUID) return crypto.randomUUID();
+    return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+const CLIENT_ID = (() => {
+    try {
+        const saved = localStorage.getItem(CLIENT_ID_KEY);
+        if (saved) return saved;
+        const id = newClientId();
+        localStorage.setItem(CLIENT_ID_KEY, id);
+        return id;
+    } catch {
+        return newClientId();
+    }
+})();
+const CLIENT_HEADERS = { 'X-Client-Id': CLIENT_ID };
 let isMobile = window.innerWidth <= 768;
 let currentView = 'chat';
 let dashboardData = null;
@@ -985,7 +1006,7 @@ async function switchProject(projectId) {
 
 async function loadSessions() {
     try {
-        const r = await fetch(`${API}/sessions`);
+        const r = await fetch(`${API}/sessions`, { headers: CLIENT_HEADERS });
         sessions = await r.json();
         renderSessions();
     } catch { sessions = []; }
@@ -1009,7 +1030,7 @@ async function newChat() {
     try {
         const body = { title: 'New Chat' };
         if (currentProjectId) body.project_id = currentProjectId;
-        const r = await fetch(`${API}/sessions`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) });
+        const r = await fetch(`${API}/sessions`, { method: 'POST', headers: {'Content-Type':'application/json', ...CLIENT_HEADERS}, body: JSON.stringify(body) });
         const s = await r.json();
         sessions.unshift(s);
         switchView('chat');
@@ -1030,7 +1051,7 @@ async function switchSession(id) {
 async function loadMessages(sessionId) {
     clearChat();
     try {
-        const r = await fetch(`${API}/sessions/${sessionId}/messages`);
+        const r = await fetch(`${API}/sessions/${sessionId}/messages`, { headers: CLIENT_HEADERS });
         const msgs = await r.json();
         if (msgs.length === 0) {
             emptyState.style.display = 'flex';
@@ -1047,7 +1068,7 @@ async function loadMessages(sessionId) {
 
 async function deleteSession(id) {
     try {
-        await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
+        await fetch(`${API}/sessions/${id}`, { method: 'DELETE', headers: CLIENT_HEADERS });
         sessions = sessions.filter(s => s.id !== id);
         if (id === currentSessionId) {
             if (sessions.length > 0) await switchSession(sessions[0].id);
@@ -1121,12 +1142,13 @@ async function send() {
 
     const stream = createStreamingMsg();
     let fullText = '';
+    let streamError = null;
     let pendingRender = false;
 
     try {
         const res = await fetch(`${API}/stream`, {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', ...CLIENT_HEADERS},
             body: JSON.stringify({ query: text, session_id: currentSessionId, project_id: currentProjectId }),
         });
 
@@ -1171,13 +1193,19 @@ async function send() {
                             pendingRender = false;
                         });
                     }
+                } else if (data.type === 'error') {
+                    streamError = data.error || 'Something went wrong.';
+                    break;
                 } else if (data.type === 'done') {
                     break;
                 }
             }
         }
 
-        stream.content.innerHTML = parseMarkdown(fullText);
+        const errorHtml = streamError
+            ? `<p style="color:var(--error)">Error: ${escapeHtml(streamError)}</p>`
+            : '';
+        stream.content.innerHTML = parseMarkdown(fullText) + errorHtml;
         scrollBottom();
     } catch (err) {
         stream.content.innerHTML = `<p style="color:var(--error)">Connection error &#8212; is the server running?</p>`;

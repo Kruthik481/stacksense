@@ -4,12 +4,12 @@
 
 **AI-powered code assistant that indexes your codebase and answers questions using RAG**
 
-Built with FAISS · BM25 · Ollama · FastAPI · sentence-transformers
+Built with FAISS · BM25 · Ollama / Groq · FastAPI · sentence-transformers
 
 [![CI](https://github.com/Kruthik481/stacksense/actions/workflows/ci.yml/badge.svg)](https://github.com/Kruthik481/stacksense/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-152%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-196%20passing-brightgreen.svg)](#testing)
 
 </div>
 
@@ -84,7 +84,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 - **Dark/Light Theme** — toggle with localStorage persistence
 
 ### Developer Experience
-- **152 Tests** across 8 test files — unit tests for every module, integration tests for all API endpoints
+- **196 Tests** across 12 test files — unit tests for every module, integration tests for all API endpoints
 - **CI/CD Pipeline** — GitHub Actions with lint (ruff), type checking (mypy), tests (pytest), Docker build
 - **Docker Compose** — one-command deployment with Ollama + app services, health checks, persistent volumes
 - **Retrieval Evaluation** — built-in harness measuring precision@k, MRR, and query latency
@@ -93,7 +93,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | Ollama (llama3) |
+| LLM | Ollama (llama3) locally · Groq (Llama 3.1) when hosted |
 | Embeddings | sentence-transformers (all-MiniLM-L6-v2, 384d) |
 | Vector Search | FAISS (IndexFlatL2) |
 | Keyword Search | Custom BM25 implementation |
@@ -103,7 +103,8 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 | Containerization | Docker multi-stage build, docker-compose |
 | CI/CD | GitHub Actions (4-stage pipeline) |
 | Linting | Ruff |
-| Testing | Pytest (152 tests) |
+| Testing | Pytest (196 tests) |
+| Hosting | Hugging Face Spaces (Docker), auto-deployed from GitHub Actions |
 
 ## Quick Start
 
@@ -163,8 +164,35 @@ cp .env.example .env
 |----------|---------|-------------|
 | `OLLAMA_MODEL` | `llama3` | LLM model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
+| `LLM_PROVIDER` | `ollama` | `ollama` for local models, `groq` for the hosted API |
+| `GROQ_API_KEY` | — | Required when `LLM_PROVIDER=groq` |
+| `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model name |
+| `PUBLIC_DEMO` | `false` (`true` in the Docker image) | Blocks ingestion and project writes, rate-limits LLM calls |
+| `RATE_LIMIT_PER_MINUTE` | `10` | Per-client LLM request limit when `PUBLIC_DEMO=true` |
 | `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model |
 | `LOG_LEVEL` | `info` | Logging level |
+
+## Deployment (Hugging Face Spaces)
+
+StackSense ships as a single Docker image that runs on the free tier of [Hugging Face Spaces](https://huggingface.co/spaces) (2 vCPU / 16 GB RAM). The image bakes in the embedding model and a demo index of StackSense's own source, so a new Space answers questions as soon as it boots.
+
+The image defaults to `PUBLIC_DEMO=true`, which hardens it for public traffic:
+
+- Ingestion and project create/delete endpoints return `403`, so visitors can't make the server read its filesystem
+- `/api/ask` and `/api/stream` are rate-limited per client (`RATE_LIMIT_PER_MINUTE`)
+- Chat sessions are private to each browser: the frontend sends an anonymous `X-Client-Id`, and other visitors' sessions return `404`
+- LLM failures reach the UI as clear errors instead of broken streams
+
+A free Space can't run Ollama, so the hosted app uses Groq's Llama API.
+
+**One-time setup**
+
+1. Create a Space at [huggingface.co/new-space](https://huggingface.co/new-space): SDK **Docker**, template **Blank**, visibility **Public**.
+2. In the Space's **Settings → Variables and secrets**, add the variable `LLM_PROVIDER=groq` and the secret `GROQ_API_KEY` (free key from [console.groq.com](https://console.groq.com/keys)).
+3. Create a Hugging Face [access token](https://huggingface.co/settings/tokens) with **write** permission.
+4. In this repo's **Settings → Secrets and variables → Actions**, add the secret `HF_TOKEN` and the variable `HF_SPACE` (e.g. `your-username/stacksense`).
+
+From then on, every push to `main` that passes CI deploys via [`deploy-hf.yml`](.github/workflows/deploy-hf.yml). You can also run it by hand from the Actions tab.
 
 ## API Reference
 
@@ -196,7 +224,7 @@ pytest ../tests/ -v
 ```
 
 ```
-152 passed in ~15s
+196 passed in ~17s
 ```
 
 Test coverage includes:
@@ -207,6 +235,8 @@ Test coverage includes:
 - **Chunkers** — AST splitting, regex fallback, edge cases
 - **Evaluation** — precision@k, MRR, latency recording
 - **API** — all 16 endpoints, error cases, streaming
+- **LLM Providers** — Ollama and Groq paths, streaming, misconfiguration and outage handling
+- **Public Demo Mode** — write-endpoint lockdown, query validation, per-client rate limiting, session isolation, legacy DB migration
 
 ## Project Structure
 
@@ -215,6 +245,8 @@ stacksense/
 ├── backend/
 │   ├── main.py          # FastAPI app, routes, IndexStore, IngestionJob
 │   ├── query.py         # RAG pipeline — retrieve, rerank, graph context, stream
+│   ├── llm.py           # LLM provider layer (Ollama locally, Groq when hosted)
+│   ├── rate_limit.py    # Sliding-window rate limiter for public deployments
 │   ├── search.py        # BM25 + FAISS hybrid search with RRF
 │   ├── ingest.py        # Codebase loading, FAISS index creation
 │   ├── chunkers.py      # AST-based Python chunking, JS/generic splitting
@@ -225,8 +257,8 @@ stacksense/
 │   └── config.py        # pydantic-settings configuration
 ├── frontend/
 │   └── index.html       # Single-file SPA (chat, dashboard, file browser)
-├── tests/               # 152 tests across 8 files
-├── .github/workflows/   # CI/CD pipeline
+├── tests/               # 196 tests across 12 files
+├── .github/workflows/   # CI pipeline + Hugging Face Spaces deploy
 ├── Dockerfile           # Multi-stage Python build
 ├── docker-compose.yml   # Ollama + app orchestration
 └── requirements.txt     # Production dependencies

@@ -3,8 +3,8 @@ import logging
 from collections.abc import Generator
 
 import faiss
+import llm
 import numpy as np
-import ollama
 from cache import embedding_cache
 from config import settings
 from depgraph import DependencyGraph
@@ -185,8 +185,7 @@ def answer_question(
     context, _ = _retrieve(query, index, metadata, history, searcher, dep_graph)
     messages = _build_messages(query, context, history)
 
-    response = ollama.chat(model=settings.ollama_model, messages=messages)
-    answer: str = response["message"]["content"]
+    answer = llm.chat(messages)
 
     if session_id:
         add_message(session_id, "user", query)
@@ -222,10 +221,14 @@ def stream_answer(
     yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
     full_answer = ""
-    for chunk in ollama.chat(model=settings.ollama_model, messages=messages, stream=True):
-        token = chunk["message"]["content"]
-        full_answer += token
-        yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+    try:
+        for token in llm.stream_chat(messages):
+            full_answer += token
+            yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+    except llm.LLMError as e:
+        # Headers are already sent, so report the failure in-band and skip saving history.
+        yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+        return
 
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 

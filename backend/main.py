@@ -1,22 +1,25 @@
 import json
 import logging
+import re
 import threading
 import time
 import uuid
 from pathlib import Path
 
+import llm
 from cache import embedding_cache, query_cache
 from chunkers import chunk_file
 from config import BASE_DIR, settings
 from depgraph import DependencyGraph
 from evaluate import evaluate_retrieval, report_to_dict
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from ingest import create_vector_store, load_codebase, load_index, save_index
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from query import answer_question, get_embedding, stream_answer
+from rate_limit import SlidingWindowRateLimiter
 from search import HybridSearcher
 from sessions import (
     create_project,
@@ -80,6 +83,68 @@ async def request_logging_middleware(request: Request, call_next):
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.exception_handler(llm.LLMError)
+async def llm_error_handler(request: Request, exc: llm.LLMError):
+    return JSONResponse(status_code=503, content={"detail": str(exc)})
+
+
+# --------------- Public Demo Guards ---------------
+
+MAX_QUERY_CHARS = 2000
+RATE_LIMIT_WINDOW_SECONDS = 60
+
+llm_rate_limiter = SlidingWindowRateLimiter(window_seconds=RATE_LIMIT_WINDOW_SECONDS)
+
+
+def require_private_mode() -> None:
+    """Block endpoints that read or change the server filesystem on public deployments."""
+    if settings.public_demo:
+        raise HTTPException(
+            403, "Disabled in the public demo. Run StackSense locally to index your own code."
+        )
+
+
+def _client_key(request: Request) -> str:
+    # Behind a hosting proxy every request shares the proxy's address, so prefer the first
+    # X-Forwarded-For hop. Clients can forge that header: this damps casual abuse of the
+    # shared LLM quota and is not a security boundary.
+    forwarded = request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+    if forwarded:
+        return forwarded
+    return request.client.host if request.client else "unknown"
+
+
+def enforce_llm_rate_limit(request: Request) -> None:
+    if not settings.public_demo:
+        return
+    if not llm_rate_limiter.allow(_client_key(request), settings.rate_limit_per_minute):
+        raise HTTPException(
+            429,
+            "Rate limit reached. Please wait a minute and try again.",
+            headers={"Retry-After": str(RATE_LIMIT_WINDOW_SECONDS)},
+        )
+
+
+CLIENT_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{16,64}")
+
+
+def get_client_id(x_client_id: str | None = Header(default=None)) -> str | None:
+    """Anonymous per-browser ID sent by the frontend so demo visitors only see their own chats."""
+    if x_client_id is not None and not CLIENT_ID_PATTERN.fullmatch(x_client_id):
+        raise HTTPException(400, "Invalid X-Client-Id header")
+    return x_client_id
+
+
+def _owned_session(session_id: str, client_id: str | None) -> dict:
+    # 404 rather than 403 so other visitors can't probe which session IDs exist.
+    session = get_session(session_id)
+    if session is None:
+        raise HTTPException(404, "Session not found")
+    if settings.public_demo and (client_id is None or session.get("owner_id") != client_id):
+        raise HTTPException(404, "Session not found")
+    return session
 
 
 # --------------- Index Store ---------------
@@ -216,7 +281,7 @@ _jobs: dict[str, IngestionJob] = {}
 
 
 class QueryRequest(BaseModel):
-    query: str
+    query: str = Field(min_length=1, max_length=MAX_QUERY_CHARS)
     session_id: str | None = None
     project_id: str | None = None
 
@@ -257,8 +322,10 @@ def health():
         "index_loaded": store.is_ready(),
         "vectors": store.index.ntotal if store.index else 0,
         "hybrid_search": store.searcher.is_ready(),
-        "model": settings.ollama_model,
+        "provider": settings.llm_provider,
+        "model": llm.active_model(),
         "embedding_model": settings.embedding_model,
+        "public_demo": settings.public_demo,
     }
 
 
@@ -271,8 +338,10 @@ def _ensure_project_loaded(project_id: str | None):
         raise HTTPException(404, "Project index not found. Ingest first.")
 
 
-@api.post("/ask", response_model=QueryResponse)
-def ask(req: QueryRequest):
+@api.post("/ask", response_model=QueryResponse, dependencies=[Depends(enforce_llm_rate_limit)])
+def ask(req: QueryRequest, client_id: str | None = Depends(get_client_id)):
+    if req.session_id:
+        _owned_session(req.session_id, client_id)
     _ensure_project_loaded(req.project_id)
     if not store.is_ready():
         raise HTTPException(503, "Index not loaded. Use /api/ingest to build it.")
@@ -282,8 +351,10 @@ def ask(req: QueryRequest):
     return QueryResponse(answer=answer)
 
 
-@api.post("/stream")
-def stream(req: QueryRequest):
+@api.post("/stream", dependencies=[Depends(enforce_llm_rate_limit)])
+def stream(req: QueryRequest, client_id: str | None = Depends(get_client_id)):
+    if req.session_id:
+        _owned_session(req.session_id, client_id)
     _ensure_project_loaded(req.project_id)
     if not store.is_ready():
         raise HTTPException(503, "Index not loaded. Use /api/ingest to build it.")
@@ -296,7 +367,7 @@ def stream(req: QueryRequest):
     )
 
 
-@api.post("/ingest")
+@api.post("/ingest", dependencies=[Depends(require_private_mode)])
 def ingest(req: IngestRequest):
     path = Path(req.path).resolve()
     if not path.exists():
@@ -341,7 +412,7 @@ def ingest(req: IngestRequest):
 # --------------- Background Ingestion ---------------
 
 
-@api.post("/ingest/start")
+@api.post("/ingest/start", dependencies=[Depends(require_private_mode)])
 def start_ingest(req: IngestRequest):
     path = Path(req.path).resolve()
     if not path.exists():
@@ -445,7 +516,7 @@ def get_dependency_graph():
 # --------------- Projects ---------------
 
 
-@api.post("/projects")
+@api.post("/projects", dependencies=[Depends(require_private_mode)])
 def create_project_endpoint(req: ProjectCreate):
     existing = get_project_by_name(req.name)
     if existing:
@@ -469,7 +540,7 @@ def get_project_endpoint(project_id: str):
     return p
 
 
-@api.delete("/projects/{project_id}")
+@api.delete("/projects/{project_id}", dependencies=[Depends(require_private_mode)])
 def delete_project_endpoint(project_id: str):
     if not delete_project(project_id):
         raise HTTPException(404, "Project not found")
@@ -490,42 +561,43 @@ def switch_project_endpoint(project_id: str):
 
 
 @api.post("/sessions")
-def create_session_endpoint(req: SessionCreate):
-    return create_session(req.title, req.project_id)
+def create_session_endpoint(req: SessionCreate, client_id: str | None = Depends(get_client_id)):
+    if settings.public_demo and client_id is None:
+        raise HTTPException(400, "Missing X-Client-Id header")
+    return create_session(req.title, req.project_id, owner_id=client_id)
 
 
 @api.get("/sessions")
-def list_sessions_endpoint():
-    return list_sessions()
+def list_sessions_endpoint(client_id: str | None = Depends(get_client_id)):
+    if not settings.public_demo:
+        return list_sessions()
+    return list_sessions(owner_id=client_id) if client_id else []
 
 
 @api.get("/sessions/{session_id}")
-def get_session_endpoint(session_id: str):
-    s = get_session(session_id)
-    if not s:
-        raise HTTPException(404, "Session not found")
-    return s
+def get_session_endpoint(session_id: str, client_id: str | None = Depends(get_client_id)):
+    return _owned_session(session_id, client_id)
 
 
 @api.delete("/sessions/{session_id}")
-def delete_session_endpoint(session_id: str):
-    if not delete_session(session_id):
-        raise HTTPException(404, "Session not found")
+def delete_session_endpoint(session_id: str, client_id: str | None = Depends(get_client_id)):
+    _owned_session(session_id, client_id)
+    delete_session(session_id)
     return {"status": "deleted"}
 
 
 @api.patch("/sessions/{session_id}")
-def update_session_endpoint(session_id: str, req: SessionUpdate):
-    if not get_session(session_id):
-        raise HTTPException(404, "Session not found")
+def update_session_endpoint(
+    session_id: str, req: SessionUpdate, client_id: str | None = Depends(get_client_id)
+):
+    _owned_session(session_id, client_id)
     update_session_title(session_id, req.title)
     return {"status": "updated"}
 
 
 @api.get("/sessions/{session_id}/messages")
-def get_messages_endpoint(session_id: str):
-    if not get_session(session_id):
-        raise HTTPException(404, "Session not found")
+def get_messages_endpoint(session_id: str, client_id: str | None = Depends(get_client_id)):
+    _owned_session(session_id, client_id)
     return get_messages(session_id)
 
 
