@@ -15,6 +15,10 @@ EMBEDDING_DIM = 384
 @lru_cache(maxsize=1)
 def get_model() -> TextEmbedding:
     # Loaded on first use so importing the API (and the test suite) never pays for the model.
+    bundle = settings.embedding_bundle_dir
+    if (bundle / "model.onnx").is_file():
+        logger.info("Loading bundled embedding model from %s", bundle)
+        return TextEmbedding(settings.embedding_model, specific_model_path=str(bundle))
     logger.info("Loading embedding model %s", settings.embedding_model)
     return TextEmbedding(settings.embedding_model, cache_dir=str(settings.embedding_cache_dir))
 

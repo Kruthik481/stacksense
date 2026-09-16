@@ -6,14 +6,32 @@ without any manual ingestion.
 """
 
 import logging
+import shutil
+import tempfile
 from pathlib import Path
 
 from chunkers import chunk_file
-from config import BASE_DIR
-from embeddings import get_model
+from config import BASE_DIR, settings
+from fastembed import TextEmbedding
 from ingest import create_vector_store, load_codebase, save_index
 
 logger = logging.getLogger(__name__)
+
+
+def export_model(dest: Path) -> None:
+    """Download the embedding model and copy it into `dest` as plain files.
+
+    The Hugging Face cache keeps weights in blobs/ and symlinks them from snapshots/.
+    Function bundlers follow symlinks, so shipping the cache doubles the model size.
+    """
+    with tempfile.TemporaryDirectory() as cache:
+        TextEmbedding(settings.embedding_model, cache_dir=cache)
+        snapshots = sorted(Path(cache).glob("models--*/snapshots/*"))
+        if not snapshots:
+            raise RuntimeError(f"Model download left no snapshot in {cache}")
+        shutil.rmtree(dest, ignore_errors=True)
+        shutil.copytree(snapshots[-1], dest, symlinks=False)
+    logger.info("Exported %s to %s", settings.embedding_model, dest)
 
 
 def build_demo_index(source_dir: Path = BASE_DIR) -> int:
@@ -37,7 +55,8 @@ def build_demo_index(source_dir: Path = BASE_DIR) -> int:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    get_model()  # Download the model into the deploy bundle instead of at request time.
+    # Ship the model with the deploy instead of downloading it on every cold start.
+    export_model(settings.embedding_bundle_dir)
     build_demo_index()
 
 

@@ -7,10 +7,10 @@ from config import settings
 class FakeTextEmbedding:
     instances = 0
 
-    def __init__(self, model_name: str, cache_dir: str | None = None, **kwargs):
+    def __init__(self, model_name: str, **kwargs):
         FakeTextEmbedding.instances += 1
         self.model_name = model_name
-        self.cache_dir = cache_dir
+        self.kwargs = kwargs
 
     def embed(self, texts):
         for _ in texts:
@@ -40,10 +40,19 @@ class TestEmbed:
     def test_does_not_load_model_until_first_embed(self, fake_model):
         assert fake_model.instances == 0
 
-    def test_uses_configured_model_and_cache_dir(self, fake_model):
+
+class TestModelSource:
+    def test_downloads_into_cache_when_no_bundled_model(self, fake_model, tmp_path, monkeypatch):
+        monkeypatch.setattr(settings, "embedding_bundle_dir", tmp_path / "missing")
         model = embeddings.get_model()
         assert model.model_name == settings.embedding_model
-        assert model.cache_dir == str(settings.embedding_cache_dir)
+        assert model.kwargs == {"cache_dir": str(settings.embedding_cache_dir)}
+
+    def test_loads_bundled_model_without_network(self, fake_model, tmp_path, monkeypatch):
+        (tmp_path / "model.onnx").write_bytes(b"onnx")
+        monkeypatch.setattr(settings, "embedding_bundle_dir", tmp_path)
+        model = embeddings.get_model()
+        assert model.kwargs == {"specific_model_path": str(tmp_path)}
 
 
 class TestRealModel:

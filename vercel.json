@@ -3,7 +3,7 @@
   "buildCommand": "python backend/build_demo.py",
   "functions": {
     "app.py": {
-      "excludeFiles": "{tests/**,venv/**,.venv/**,.github/**,.claude/**,**/__pycache__/**,.coverage,.mypy_cache/**,.pytest_cache/**,.ruff_cache/**,Dockerfile,docker-compose.yml}"
+      "excludeFiles": "{models/cache/**,tests/**,venv/**,.venv/**,.github/**,.claude/**,**/__pycache__/**,.coverage,.mypy_cache/**,.pytest_cache/**,.ruff_cache/**,Dockerfile,docker-compose.yml}"
     }
   }
 }

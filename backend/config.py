@@ -26,8 +26,11 @@ class Settings(BaseSettings):
     groq_api_key: SecretStr | None = None
     groq_model: str = "llama-3.1-8b-instant"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    # Kept outside backend/ so the demo index never ingests the model's JSON files.
-    embedding_cache_dir: Path = BASE_DIR.parent / "models"
+    # Both live outside backend/ so the demo index never ingests the model's JSON files.
+    # Local runs download into the cache; deploy builds export a flat copy into the bundle
+    # dir, which wins when present (the cache's symlinks would ship the weights twice).
+    embedding_cache_dir: Path = BASE_DIR.parent / "models" / "cache"
+    embedding_bundle_dir: Path = BASE_DIR.parent / "models" / "bundled"
     faiss_index_path: Path = BASE_DIR / "data" / "index.faiss"
     metadata_path: Path = BASE_DIR / "data" / "metadata.pkl"
     db_path: Path = Field(default_factory=_default_db_path)

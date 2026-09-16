@@ -1,6 +1,35 @@
+from pathlib import Path
+
 import build_demo
 from config import settings
 from ingest import load_index
+
+
+class FakeHubDownload:
+    """Mimics the Hugging Face cache: real files in blobs/, symlinks in snapshots/."""
+
+    def __init__(self, model_name: str, cache_dir: str):
+        repo = Path(cache_dir) / "models--qdrant--fake-onnx"
+        blobs = repo / "blobs"
+        snapshot = repo / "snapshots" / "abc123"
+        blobs.mkdir(parents=True)
+        snapshot.mkdir(parents=True)
+        for name, content in {"model.onnx": b"weights", "tokenizer.json": b"{}"}.items():
+            (blobs / name).write_bytes(content)
+            (snapshot / name).symlink_to(blobs / name)
+
+
+def test_export_model_writes_real_files_without_cache_duplicates(tmp_path, monkeypatch):
+    monkeypatch.setattr(build_demo, "TextEmbedding", FakeHubDownload)
+    dest = tmp_path / "bundled"
+
+    build_demo.export_model(dest)
+
+    files = sorted(p.name for p in dest.iterdir())
+    assert files == ["model.onnx", "tokenizer.json"]
+    # Bundlers follow symlinks, so any left behind would ship the weights twice.
+    assert not any(p.is_symlink() for p in dest.iterdir())
+    assert (dest / "model.onnx").read_bytes() == b"weights"
 
 
 def test_indexes_source_with_paths_relative_to_it(tmp_path, monkeypatch, fake_embedding):
