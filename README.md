@@ -9,7 +9,9 @@ Built with FAISS · BM25 · Ollama / Groq · FastAPI · fastembed (ONNX)
 [![CI](https://github.com/Kruthik481/stacksense/actions/workflows/ci.yml/badge.svg)](https://github.com/Kruthik481/stacksense/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-211%20passing-brightgreen.svg)](#testing)
+
+**[Live demo → stacksense-eight.vercel.app](https://stacksense-eight.vercel.app)** · ask questions about StackSense's own source code
 
 </div>
 
@@ -84,7 +86,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 - **Dark/Light Theme** — toggle with localStorage persistence
 
 ### Developer Experience
-- **209 Tests** across 16 test files — unit tests for every module, integration tests for all API endpoints
+- **211 Tests** across 16 test files — unit tests for every module, integration tests for all API endpoints
 - **CI/CD Pipeline** — GitHub Actions with lint (ruff), type checking (mypy), tests (pytest), Docker build
 - **Docker Compose** — one-command deployment with Ollama + app services, health checks, persistent volumes
 - **Retrieval Evaluation** — built-in harness measuring precision@k, MRR, and query latency
@@ -103,7 +105,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 | Containerization | Docker multi-stage build, docker-compose |
 | CI/CD | GitHub Actions (4-stage pipeline) |
 | Linting | Ruff |
-| Testing | Pytest (209 tests) |
+| Testing | Pytest (211 tests) |
 | Hosting | Vercel (Python Function on Fluid Compute), auto-deployed from GitHub |
 
 ## Quick Start
@@ -229,7 +231,7 @@ pytest ../tests/ -v
 ```
 
 ```
-209 passed
+211 passed
 ```
 
 Test coverage includes:
@@ -264,7 +266,7 @@ stacksense/
 │   └── config.py        # pydantic-settings configuration
 ├── frontend/
 │   └── index.html       # Single-file SPA (chat, dashboard, file browser)
-├── tests/               # 209 tests across 16 files
+├── tests/               # 211 tests across 16 files
 ├── .github/workflows/   # CI pipeline
 ├── app.py               # Vercel entrypoint (re-exports backend/main.py)
 ├── vercel.json          # Vercel function bundle config
