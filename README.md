@@ -177,7 +177,7 @@ cp .env.example .env
 StackSense deploys to [Vercel](https://vercel.com) as a single Python Function on the free Hobby plan. Embeddings run on fastembed's ONNX build of all-MiniLM-L6-v2 instead of PyTorch, which keeps the bundle around 300 MB (the Python limit is 500 MB) while producing the same vectors.
 
 - **Entrypoint** — the root [`app.py`](app.py) puts `backend/` on the import path and re-exports the FastAPI app
-- **Build step** — `[tool.vercel.scripts] build` in `pyproject.toml` runs [`backend/build_demo.py`](backend/build_demo.py), which downloads the embedding model and indexes StackSense's own backend, so the first request already has a demo codebase to search
+- **Build step** — `buildCommand` in [`vercel.json`](vercel.json) runs [`backend/build_demo.py`](backend/build_demo.py), which downloads the embedding model and indexes StackSense's own backend, so the first request already has a demo codebase to search
 - **Filesystem** — Vercel Functions are read-only outside `/tmp`, so when `VERCEL` is set the SQLite database moves to `/tmp`
 
 When `VERCEL` is set, `PUBLIC_DEMO` defaults to `true`, which hardens the app for public traffic:

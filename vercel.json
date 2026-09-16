@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "python backend/build_demo.py",
   "functions": {
     "app.py": {
       "excludeFiles": "{tests/**,venv/**,.venv/**,.github/**,.claude/**,**/__pycache__/**,.coverage,.mypy_cache/**,.pytest_cache/**,.ruff_cache/**,Dockerfile,docker-compose.yml}"
