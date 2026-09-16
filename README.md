@@ -93,7 +93,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 
 | Layer | Technology |
 |-------|-----------|
-| LLM | Ollama (llama3) locally · Groq (Llama 3.1) when hosted |
+| LLM | Ollama (llama3) locally · Groq (gpt-oss-20b) when hosted |
 | Embeddings | fastembed ONNX runtime (all-MiniLM-L6-v2, 384d, no PyTorch) |
 | Vector Search | FAISS (IndexFlatL2) |
 | Keyword Search | Custom BM25 implementation |
@@ -166,7 +166,7 @@ cp .env.example .env
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama API endpoint |
 | `LLM_PROVIDER` | `ollama` | `ollama` for local models, `groq` for the hosted API |
 | `GROQ_API_KEY` | — | Required when `LLM_PROVIDER=groq` |
-| `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model name |
+| `GROQ_MODEL` | `openai/gpt-oss-20b` | Groq model name |
 | `PUBLIC_DEMO` | `false` (`true` on Vercel and in the Docker image) | Blocks ingestion and project writes, rate-limits LLM calls |
 | `RATE_LIMIT_PER_MINUTE` | `10` | Per-client LLM request limit when `PUBLIC_DEMO=true` |
 | `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | fastembed model name |
@@ -189,7 +189,7 @@ When `VERCEL` is set, `PUBLIC_DEMO` defaults to `true`, which hardens the app fo
 
 Serverless instances scale to zero when idle, so chat history and rate-limit counters reset after quiet periods. That's fine for a demo; a persistent deployment would move them to Postgres and Redis.
 
-Vercel can't run Ollama, so the hosted app uses Groq's Llama API.
+Vercel can't run Ollama, so the hosted app calls Groq's hosted `openai/gpt-oss-20b` model.
 
 **One-time setup**
 

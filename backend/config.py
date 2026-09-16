@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3"
     ollama_base_url: str = "http://localhost:11434"
     groq_api_key: SecretStr | None = None
-    groq_model: str = "llama-3.1-8b-instant"
+    groq_model: str = "openai/gpt-oss-20b"
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     # Both live outside backend/ so the demo index never ingests the model's JSON files.
     # Local runs download into the cache; deploy builds export a flat copy into the bundle
