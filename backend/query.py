@@ -6,15 +6,12 @@ import faiss
 import llm
 import numpy as np
 from cache import embedding_cache
-from config import settings
 from depgraph import DependencyGraph
+from embeddings import embed
 from search import HybridSearcher
-from sentence_transformers import SentenceTransformer
 from sessions import add_message, auto_title, get_messages
 
 logger = logging.getLogger(__name__)
-
-model = SentenceTransformer(settings.embedding_model)
 
 SYSTEM_PROMPT = """You are an expert code assistant.
 
@@ -35,7 +32,7 @@ def get_embedding(text: str) -> np.ndarray:
     cached = embedding_cache.get(text)
     if cached is not None:
         return cached
-    emb: np.ndarray = np.asarray(model.encode(text))
+    emb = embed(text)
     embedding_cache.put(text, emb)
     return emb
 

@@ -4,6 +4,11 @@ version = "1.0.0"
 description = "RAG-based code assistant that indexes your codebase and answers questions using AI"
 requires-python = ">=3.11"
 
+# Vercel: the root app.py re-exports backend/main.py's app. The build step downloads the
+# embedding model and indexes StackSense's own backend so the demo works on first request.
+[tool.vercel.scripts]
+build = "python backend/build_demo.py"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["backend"]

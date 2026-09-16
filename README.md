@@ -4,12 +4,12 @@
 
 **AI-powered code assistant that indexes your codebase and answers questions using RAG**
 
-Built with FAISS · BM25 · Ollama / Groq · FastAPI · sentence-transformers
+Built with FAISS · BM25 · Ollama / Groq · FastAPI · fastembed (ONNX)
 
 [![CI](https://github.com/Kruthik481/stacksense/actions/workflows/ci.yml/badge.svg)](https://github.com/Kruthik481/stacksense/actions)
 [![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-196%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen.svg)](#testing)
 
 </div>
 
@@ -84,7 +84,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 - **Dark/Light Theme** — toggle with localStorage persistence
 
 ### Developer Experience
-- **196 Tests** across 12 test files — unit tests for every module, integration tests for all API endpoints
+- **209 Tests** across 16 test files — unit tests for every module, integration tests for all API endpoints
 - **CI/CD Pipeline** — GitHub Actions with lint (ruff), type checking (mypy), tests (pytest), Docker build
 - **Docker Compose** — one-command deployment with Ollama + app services, health checks, persistent volumes
 - **Retrieval Evaluation** — built-in harness measuring precision@k, MRR, and query latency
@@ -94,7 +94,7 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 | Layer | Technology |
 |-------|-----------|
 | LLM | Ollama (llama3) locally · Groq (Llama 3.1) when hosted |
-| Embeddings | sentence-transformers (all-MiniLM-L6-v2, 384d) |
+| Embeddings | fastembed ONNX runtime (all-MiniLM-L6-v2, 384d, no PyTorch) |
 | Vector Search | FAISS (IndexFlatL2) |
 | Keyword Search | Custom BM25 implementation |
 | Framework | FastAPI with APIRouter |
@@ -103,8 +103,8 @@ StackSense indexes any codebase, builds a semantic search index, and answers nat
 | Containerization | Docker multi-stage build, docker-compose |
 | CI/CD | GitHub Actions (4-stage pipeline) |
 | Linting | Ruff |
-| Testing | Pytest (196 tests) |
-| Hosting | Hugging Face Spaces (Docker), auto-deployed from GitHub Actions |
+| Testing | Pytest (209 tests) |
+| Hosting | Vercel (Python Function on Fluid Compute), auto-deployed from GitHub |
 
 ## Quick Start
 
@@ -167,32 +167,37 @@ cp .env.example .env
 | `LLM_PROVIDER` | `ollama` | `ollama` for local models, `groq` for the hosted API |
 | `GROQ_API_KEY` | — | Required when `LLM_PROVIDER=groq` |
 | `GROQ_MODEL` | `llama-3.1-8b-instant` | Groq model name |
-| `PUBLIC_DEMO` | `false` (`true` in the Docker image) | Blocks ingestion and project writes, rate-limits LLM calls |
+| `PUBLIC_DEMO` | `false` (`true` on Vercel and in the Docker image) | Blocks ingestion and project writes, rate-limits LLM calls |
 | `RATE_LIMIT_PER_MINUTE` | `10` | Per-client LLM request limit when `PUBLIC_DEMO=true` |
-| `EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Sentence transformer model |
+| `EMBEDDING_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | fastembed model name |
 | `LOG_LEVEL` | `info` | Logging level |
 
-## Deployment (Hugging Face Spaces)
+## Deployment (Vercel)
 
-StackSense ships as a single Docker image that runs on the free tier of [Hugging Face Spaces](https://huggingface.co/spaces) (2 vCPU / 16 GB RAM). The image bakes in the embedding model and a demo index of StackSense's own source, so a new Space answers questions as soon as it boots.
+StackSense deploys to [Vercel](https://vercel.com) as a single Python Function on the free Hobby plan. Embeddings run on fastembed's ONNX build of all-MiniLM-L6-v2 instead of PyTorch, which keeps the bundle around 300 MB (the Python limit is 500 MB) while producing the same vectors.
 
-The image defaults to `PUBLIC_DEMO=true`, which hardens it for public traffic:
+- **Entrypoint** — the root [`app.py`](app.py) puts `backend/` on the import path and re-exports the FastAPI app
+- **Build step** — `[tool.vercel.scripts] build` in `pyproject.toml` runs [`backend/build_demo.py`](backend/build_demo.py), which downloads the embedding model and indexes StackSense's own backend, so the first request already has a demo codebase to search
+- **Filesystem** — Vercel Functions are read-only outside `/tmp`, so when `VERCEL` is set the SQLite database moves to `/tmp`
+
+When `VERCEL` is set, `PUBLIC_DEMO` defaults to `true`, which hardens the app for public traffic:
 
 - Ingestion and project create/delete endpoints return `403`, so visitors can't make the server read its filesystem
 - `/api/ask` and `/api/stream` are rate-limited per client (`RATE_LIMIT_PER_MINUTE`)
 - Chat sessions are private to each browser: the frontend sends an anonymous `X-Client-Id`, and other visitors' sessions return `404`
 - LLM failures reach the UI as clear errors instead of broken streams
 
-A free Space can't run Ollama, so the hosted app uses Groq's Llama API.
+Serverless instances scale to zero when idle, so chat history and rate-limit counters reset after quiet periods. That's fine for a demo; a persistent deployment would move them to Postgres and Redis.
+
+Vercel can't run Ollama, so the hosted app uses Groq's Llama API.
 
 **One-time setup**
 
-1. Create a Space at [huggingface.co/new-space](https://huggingface.co/new-space): SDK **Docker**, template **Blank**, visibility **Public**.
-2. In the Space's **Settings → Variables and secrets**, add the variable `LLM_PROVIDER=groq` and the secret `GROQ_API_KEY` (free key from [console.groq.com](https://console.groq.com/keys)).
-3. Create a Hugging Face [access token](https://huggingface.co/settings/tokens) with **write** permission.
-4. In this repo's **Settings → Secrets and variables → Actions**, add the secret `HF_TOKEN` and the variable `HF_SPACE` (e.g. `your-username/stacksense`).
+1. Import this repository at [vercel.com/new](https://vercel.com/new). Vercel detects FastAPI; keep the defaults.
+2. Under **Environment Variables**, add `LLM_PROVIDER=groq` and `GROQ_API_KEY` (free key from [console.groq.com](https://console.groq.com/keys)).
+3. Deploy. From then on, every push to `main` deploys to production and every pull request gets a preview URL.
 
-From then on, every push to `main` that passes CI deploys via [`deploy-hf.yml`](.github/workflows/deploy-hf.yml). You can also run it by hand from the Actions tab.
+The Docker image still works for self-hosting: `docker build -t stacksense . && docker run -p 8000:8000 -e LLM_PROVIDER=groq -e GROQ_API_KEY=... stacksense`.
 
 ## API Reference
 
@@ -224,7 +229,7 @@ pytest ../tests/ -v
 ```
 
 ```
-196 passed in ~17s
+209 passed
 ```
 
 Test coverage includes:
@@ -249,6 +254,8 @@ stacksense/
 │   ├── rate_limit.py    # Sliding-window rate limiter for public deployments
 │   ├── search.py        # BM25 + FAISS hybrid search with RRF
 │   ├── ingest.py        # Codebase loading, FAISS index creation
+│   ├── embeddings.py    # fastembed ONNX embeddings, loaded lazily
+│   ├── build_demo.py    # Build step: fetch model + index the demo codebase
 │   ├── chunkers.py      # AST-based Python chunking, JS/generic splitting
 │   ├── depgraph.py      # Code dependency graph (import parsing)
 │   ├── cache.py         # LRU embedding cache + TTL query cache
@@ -257,8 +264,10 @@ stacksense/
 │   └── config.py        # pydantic-settings configuration
 ├── frontend/
 │   └── index.html       # Single-file SPA (chat, dashboard, file browser)
-├── tests/               # 196 tests across 12 files
-├── .github/workflows/   # CI pipeline + Hugging Face Spaces deploy
+├── tests/               # 209 tests across 16 files
+├── .github/workflows/   # CI pipeline
+├── app.py               # Vercel entrypoint (re-exports backend/main.py)
+├── vercel.json          # Vercel function bundle config
 ├── Dockerfile           # Multi-stage Python build
 ├── docker-compose.yml   # Ollama + app orchestration
 └── requirements.txt     # Production dependencies
@@ -266,7 +275,7 @@ stacksense/
 
 ## How It Works
 
-1. **Ingest** — Walk the codebase, read supported files, split into semantic chunks (functions, classes, or sized blocks), embed with sentence-transformers, store in a FAISS index
+1. **Ingest** — Walk the codebase, read supported files, split into semantic chunks (functions, classes, or sized blocks), embed with fastembed (ONNX all-MiniLM-L6-v2), store in a FAISS index
 
 2. **Search** — On a query, run both FAISS vector search and BM25 keyword search in parallel, merge with Reciprocal Rank Fusion, rerank by keyword overlap
 

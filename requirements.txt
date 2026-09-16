@@ -7,8 +7,4 @@ ollama==0.6.1
 groq==1.7.0
 faiss-cpu==1.13.2
 numpy==2.4.3
-sentence-transformers==5.3.0
-torch==2.10.0
-transformers==5.3.0
-scikit-learn==1.8.0
-scipy==1.17.1
+fastembed==0.8.0

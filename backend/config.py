@@ -1,10 +1,22 @@
+import os
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings
 
 BASE_DIR = Path(__file__).resolve().parent
+
+
+def _on_vercel() -> bool:
+    return bool(os.environ.get("VERCEL"))
+
+
+def _default_db_path() -> Path:
+    # Vercel Functions have a read-only filesystem except /tmp.
+    if _on_vercel():
+        return Path("/tmp/stacksense/sessions.db")
+    return BASE_DIR / "data" / "sessions.db"
 
 
 class Settings(BaseSettings):
@@ -13,16 +25,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     groq_api_key: SecretStr | None = None
     groq_model: str = "llama-3.1-8b-instant"
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    # Kept outside backend/ so the demo index never ingests the model's JSON files.
+    embedding_cache_dir: Path = BASE_DIR.parent / "models"
     faiss_index_path: Path = BASE_DIR / "data" / "index.faiss"
     metadata_path: Path = BASE_DIR / "data" / "metadata.pkl"
-    db_path: Path = BASE_DIR / "data" / "sessions.db"
+    db_path: Path = Field(default_factory=_default_db_path)
     projects_dir: Path = BASE_DIR / "data" / "projects"
     cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:5500"]
     log_level: str = "info"
     # Public deployments: block endpoints that read or change the server filesystem,
-    # and rate-limit LLM calls per client.
-    public_demo: bool = False
+    # and rate-limit LLM calls per client. Defaults on for Vercel so a missing env var
+    # can never expose ingestion on the live site.
+    public_demo: bool = Field(default_factory=_on_vercel)
     rate_limit_per_minute: int = 10
 
     model_config = {"env_file": BASE_DIR.parent / ".env", "extra": "ignore"}

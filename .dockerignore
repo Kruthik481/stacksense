@@ -11,3 +11,4 @@ tests/
 *.db
 .claude/
 *.egg-info/
+models/

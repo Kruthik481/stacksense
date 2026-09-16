@@ -7,7 +7,7 @@ import faiss
 import numpy as np
 from chunkers import chunk_file
 from config import settings
-from sentence_transformers import SentenceTransformer
+from embeddings import EMBEDDING_DIM, embed
 
 logger = logging.getLogger(__name__)
 
@@ -31,12 +31,6 @@ SUPPORTED_EXTENSIONS = {
     ".rb",
     ".sh",
 }
-
-model = SentenceTransformer(settings.embedding_model)
-
-
-def get_embedding(text: str) -> np.ndarray:
-    return np.asarray(model.encode(text))
 
 
 def load_codebase(path: str) -> list[dict]:
@@ -64,13 +58,12 @@ def load_codebase(path: str) -> list[dict]:
 
 
 def create_vector_store(chunks: list[dict]) -> tuple[faiss.Index, list[dict]]:
-    dimension = 384
-    index = faiss.IndexFlatL2(dimension)
+    index = faiss.IndexFlatL2(EMBEDDING_DIM)
     vectors = []
     metadata = []
 
     for chunk in chunks:
-        emb = get_embedding(chunk["content"])
+        emb = embed(chunk["content"])
         vectors.append(emb)
         metadata.append(chunk)
 

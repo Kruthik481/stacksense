@@ -39,3 +39,6 @@ backend/data/eval_report.json
 # Coverage
 .coverage
 .claude/
+
+# fastembed model cache (downloaded by backend/build_demo.py)
+models/
